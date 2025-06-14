@@ -1899,4 +1899,177 @@ describe('useInfiniteQuery', () => {
       expect(renderedComponents).toEqual([MyComponent])
     }
   })
+
+  describe('enabled option', () => {
+    it('should not call queryFn when enabled is false', async () => {
+      const key = queryKey()
+      const queryFn = vi
+        .fn()
+        .mockImplementation(async ({ pageParam }: { pageParam: number }) => {
+          await sleep(10)
+          return {
+            items: [...new Array(10)]
+              .fill(null)
+              .map((_, d) => pageParam * pageSize + d),
+            nextId: pageParam + 1,
+            ts: Date.now(),
+          }
+        })
+
+      const states: Array<UseInfiniteQueryResult<InfiniteData<Result>>> = []
+
+      function Page() {
+        const state = useInfiniteQuery({
+          queryKey: key,
+          queryFn,
+          getNextPageParam: (lastPage) => lastPage.nextId,
+          initialPageParam: 0,
+          enabled: false,
+        })
+
+        states.push(state)
+        return <div>fetchStatus: {state.fetchStatus}</div>
+      }
+
+      const rendered = renderWithClient(queryClient, <Page />)
+
+      await sleep(100)
+
+      expect(queryFn).not.toHaveBeenCalled()
+
+      expect(states[0]).toMatchObject({
+        data: undefined,
+        error: null,
+        isError: false,
+        isFetched: false,
+        isFetching: false,
+        isLoading: false,
+        isPending: true,
+        isSuccess: false,
+        status: 'pending',
+        fetchStatus: 'idle',
+      })
+
+      expect(rendered.getByText('fetchStatus: idle')).toBeInTheDocument()
+    })
+
+    it('should transition from enabled: false to enabled: true', async () => {
+      const key = queryKey()
+      const queryFn = vi
+        .fn()
+        .mockImplementation(async ({ pageParam }: { pageParam: number }) => {
+          await sleep(10)
+          return {
+            items: [...new Array(10)]
+              .fill(null)
+              .map((_, d) => pageParam * pageSize + d),
+            nextId: pageParam + 1,
+            ts: Date.now(),
+          }
+        })
+
+      const states: Array<UseInfiniteQueryResult<InfiniteData<Result>>> = []
+
+      function Page() {
+        const [shouldFetch, setShouldFetch] = React.useState(false)
+
+        const state = useInfiniteQuery({
+          queryKey: key,
+          queryFn,
+          getNextPageParam: (lastPage) => lastPage.nextId,
+          initialPageParam: 0,
+          enabled: shouldFetch,
+        })
+
+        states.push(state)
+
+        return (
+          <div>
+            <div>fetchStatus: {state.fetchStatus}</div>
+            <div>status: {state.status}</div>
+            {!shouldFetch && (
+              <button onClick={() => setShouldFetch(true)}>enable</button>
+            )}
+          </div>
+        )
+      }
+
+      const rendered = renderWithClient(queryClient, <Page />)
+
+      await sleep(50)
+
+      expect(queryFn).not.toHaveBeenCalled()
+      expect(rendered.getByText('fetchStatus: idle')).toBeInTheDocument()
+      expect(rendered.getByText('status: pending')).toBeInTheDocument()
+
+      fireEvent.click(rendered.getByText('enable'))
+
+      await waitFor(() => {
+        expect(rendered.getByText('fetchStatus: fetching')).toBeInTheDocument()
+      })
+
+      await waitFor(() => {
+        expect(rendered.getByText('fetchStatus: idle')).toBeInTheDocument()
+        expect(rendered.getByText('status: success')).toBeInTheDocument()
+      })
+
+      expect(queryFn).toHaveBeenCalledTimes(1)
+    })
+
+    it('should not call queryFn on fetchNextPage when enabled is false', async () => {
+      const key = queryKey()
+      const queryFn = vi
+        .fn()
+        .mockImplementation(async ({ pageParam }: { pageParam: number }) => {
+          await sleep(10)
+          return {
+            items: [...new Array(10)]
+              .fill(null)
+              .map((_, d) => pageParam * pageSize + d),
+            nextId: pageParam + 1,
+            ts: Date.now(),
+          }
+        })
+
+      let fetchNextPageRef: (() => void) | undefined
+
+      function Page() {
+        const state = useInfiniteQuery({
+          queryKey: key,
+          queryFn,
+          getNextPageParam: (lastPage) => lastPage.nextId,
+          initialPageParam: 0,
+          enabled: false,
+        })
+
+        fetchNextPageRef = state.fetchNextPage
+
+        return (
+          <div>
+            <div>fetchStatus: {state.fetchStatus}</div>
+            <button onClick={() => state.fetchNextPage()}>fetchNextPage</button>
+          </div>
+        )
+      }
+
+      const rendered = renderWithClient(queryClient, <Page />)
+
+      await sleep(50)
+
+      expect(queryFn).not.toHaveBeenCalled()
+
+      fireEvent.click(rendered.getByText('fetchNextPage'))
+
+      await sleep(50)
+
+      expect(queryFn).not.toHaveBeenCalled()
+      expect(rendered.getByText('fetchStatus: idle')).toBeInTheDocument()
+
+      fetchNextPageRef?.()
+
+      await sleep(50)
+
+      expect(queryFn).not.toHaveBeenCalled()
+    })
+  })
 })
